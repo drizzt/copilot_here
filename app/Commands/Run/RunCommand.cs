@@ -672,12 +672,26 @@ public sealed class RunCommand : ICommand
 
   /// <summary>
   /// Parses a CLI mount path, handling both simple paths and host:container format.
-  /// Format: "path", "path:rw", "path:ro", "host:container", "host:container:rw", "host:container:ro"
+  /// Format: "path", "path:rw", "path:ro", "path:z", "path:rw:z", "host:container", "host:container:rw", "host:container:ro", "host:container:rw:z"
+  /// SELinux labels :z (shared) and :Z (private) can appear before or after :rw/:ro.
   /// </summary>
   internal static MountEntry ParseCliMount(string input, bool defaultReadWrite)
   {
     var isReadWrite = defaultReadWrite;
+    string? selinuxLabel = null;
     var spec = input.Trim('\'', '"'); // Remove any surrounding quotes
+
+    // Check for trailing :z or :Z (SELinux labels, case-sensitive)
+    if (spec.EndsWith(":z", StringComparison.Ordinal))
+    {
+      selinuxLabel = "z";
+      spec = spec[..^2];
+    }
+    else if (spec.EndsWith(":Z", StringComparison.Ordinal))
+    {
+      selinuxLabel = "Z";
+      spec = spec[..^2];
+    }
 
     // Check for trailing :rw or :ro
     if (spec.EndsWith(":rw", StringComparison.OrdinalIgnoreCase))
@@ -691,20 +705,35 @@ public sealed class RunCommand : ICommand
       spec = spec[..^3];
     }
 
+    // Check again for :z or :Z after stripping rw/ro (handles "/path:rw:z" order)
+    if (selinuxLabel is null)
+    {
+      if (spec.EndsWith(":z", StringComparison.Ordinal))
+      {
+        selinuxLabel = "z";
+        spec = spec[..^2];
+      }
+      else if (spec.EndsWith(":Z", StringComparison.Ordinal))
+      {
+        selinuxLabel = "Z";
+        spec = spec[..^2];
+      }
+    }
+
     // Check if this is a host:container format
     var separatorIndex = FindBindSeparator(spec);
     
     if (separatorIndex == -1)
     {
       // Simple path format - auto-compute container path
-      return new MountEntry(spec, isReadWrite, MountSource.CommandLine);
+      return new MountEntry(spec, isReadWrite, MountSource.CommandLine) { SelinuxLabel = selinuxLabel };
     }
 
     // host:container format
     var hostPath = spec[..separatorIndex];
     var containerPath = spec[(separatorIndex + 1)..];
 
-    return new MountEntry(hostPath, containerPath, isReadWrite, MountSource.CommandLine);
+    return new MountEntry(hostPath, containerPath, isReadWrite, MountSource.CommandLine) { SelinuxLabel = selinuxLabel };
   }
 
   /// <summary>

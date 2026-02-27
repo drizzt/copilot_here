@@ -447,4 +447,47 @@ public class MountEntryTests
     await Assert.That(dockerVolume).Contains("test");
     await Assert.That(dockerVolume).Contains("hostdata");
   }
+
+  [Test]
+  public async Task ToDockerVolume_WithSelinuxSharedLabel_AppendsZLabel()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local) { SelinuxLabel = "z" };
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome);
+
+    // Assert
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro,z");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_WithSelinuxPrivateLabel_AppendsCapitalZLabel()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", true, MountSource.Local) { SelinuxLabel = "Z" };
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome);
+
+    // Assert
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:rw,Z");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_WithoutSelinuxLabel_NoCommaAppended()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local);
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome);
+
+    // Assert
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro");
+    await Assert.That(dockerVolume).DoesNotContain(",");
+  }
 }
