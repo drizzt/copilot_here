@@ -18,6 +18,12 @@ public sealed record AppEnvironment
   /// <summary>Whether the terminal supports emoji variation selectors (U+FE0F).</summary>
   public required bool SupportsEmojiVariationSelectors { get; init; }
 
+  /// <summary>
+  /// SELinux label to apply to all bind mounts when SELinux is enforcing.
+  /// "z" (shared label) when SELinux enforcement is detected, null otherwise.
+  /// </summary>
+  public required string? SelinuxLabel { get; init; }
+
   /// <summary>Creates AppEnvironment with all runtime info resolved.</summary>
   public static AppEnvironment Resolve()
   {
@@ -26,7 +32,8 @@ public sealed record AppEnvironment
       UserId = SystemInfo.GetUserId(),
       GroupId = SystemInfo.GetGroupId(),
       SupportsEmoji = SystemInfo.SupportsEmoji(),
-      SupportsEmojiVariationSelectors = SystemInfo.SupportsEmojiVariationSelectors()
+      SupportsEmojiVariationSelectors = SystemInfo.SupportsEmojiVariationSelectors(),
+      SelinuxLabel = SystemInfo.IsSelinuxEnforcing() ? "z" : null
     };
   }
 }

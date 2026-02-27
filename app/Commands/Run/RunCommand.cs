@@ -613,7 +613,10 @@ public sealed class RunCommand : ICommand
     var sessionInfo = SessionInfo.Generate(ctx, imageTag, imageName, mounts, isYolo);
     var hostToolConfigPath = ctx.ActiveTool.GetHostConfigPath(ctx.Paths);
     var containerToolConfigPath = ctx.ActiveTool.GetContainerConfigPath();
-    
+
+    // SELinux: append :z to bind mounts when SELinux enforcement is detected on the host
+    var selinuxSuffix = ctx.Environment.SelinuxLabel is not null ? $":{ctx.Environment.SelinuxLabel}" : "";
+
     var args = new List<string>
     {
       "run",
@@ -621,10 +624,10 @@ public sealed class RunCommand : ICommand
       "-it",
       "--name", containerName,
       // Mount current directory
-      "-v", $"{ConvertToDockerPath(ctx.Paths.CurrentDirectory)}:{ctx.Paths.ContainerWorkDir}",
+      "-v", $"{ConvertToDockerPath(ctx.Paths.CurrentDirectory)}:{ctx.Paths.ContainerWorkDir}{selinuxSuffix}",
       "-w", ctx.Paths.ContainerWorkDir,
       // Mount active tool config
-      "-v", $"{ConvertToDockerPath(hostToolConfigPath)}:{containerToolConfigPath}",
+      "-v", $"{ConvertToDockerPath(hostToolConfigPath)}:{containerToolConfigPath}{selinuxSuffix}",
       // Environment variables
       "-e", $"PUID={ctx.Environment.UserId}",
       "-e", $"PGID={ctx.Environment.GroupId}",
@@ -646,11 +649,12 @@ public sealed class RunCommand : ICommand
       args.Insert(1, "--pull=never"); // Insert after "run"
     }
 
-    // Add additional mounts
+    // Add additional mounts; pass the environment's SELinux label as fallback
+    // so that mounts without an explicit :z/:Z are also labelled on SELinux hosts
     foreach (var mount in mounts)
     {
       args.Add("-v");
-      args.Add(mount.ToDockerVolume(ctx.Paths.UserHome));
+      args.Add(mount.ToDockerVolume(ctx.Paths.UserHome, ctx.Environment.SelinuxLabel));
     }
 
     // Add sandbox flags from SANDBOX_FLAGS environment variable

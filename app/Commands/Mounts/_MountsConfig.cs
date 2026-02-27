@@ -272,13 +272,20 @@ public readonly record struct MountEntry
   }
 
   /// <summary>Gets the Docker volume mount string.</summary>
-  public string ToDockerVolume(string userHome)
+  /// <param name="userHome">The host user's home directory path.</param>
+  /// <param name="fallbackSelinuxLabel">
+  /// SELinux label to use when this mount has no explicit label set (e.g. auto-detected from the host).
+  /// Precedence: the mount's own <see cref="SelinuxLabel"/> takes priority over this fallback;
+  /// both can be null, in which case no SELinux label is appended.
+  /// </param>
+  public string ToDockerVolume(string userHome, string? fallbackSelinuxLabel = null)
   {
     var hostPath = ResolveHostPath(userHome);
     var dockerHostPath = ConvertToDockerPath(hostPath);
     var containerPath = GetContainerPath(userHome);
     var mode = IsReadWrite ? "rw" : "ro";
-    var selinux = SelinuxLabel is not null ? $",{SelinuxLabel}" : "";
+    var effectiveLabel = SelinuxLabel ?? fallbackSelinuxLabel;
+    var selinux = effectiveLabel is not null ? $",{effectiveLabel}" : "";
     return $"{dockerHostPath}:{containerPath}:{mode}{selinux}";
   }
 
