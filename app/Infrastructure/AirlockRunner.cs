@@ -288,15 +288,18 @@ public static class AirlockRunner
   {
     try
     {
-      // Build extra mounts string
+      // SELinux: append :z / ,z to bind mounts when SELinux enforcement is detected on the host.
+      // selinuxBindOpts is used on mounts with no existing options (e.g. ":z").
+      // selinuxExtraOpt is used on mounts that already have options (e.g. ":ro,z").
+      var selinuxLabel = ctx.Environment.SelinuxLabel;
+      var selinuxBindOpts = selinuxLabel is not null ? $":{selinuxLabel}" : "";
+      var selinuxExtraOpt = selinuxLabel is not null ? $",{selinuxLabel}" : "";
+
+      // Build extra mounts string; pass the environment's SELinux label as fallback
       var extraMounts = new StringBuilder();
       foreach (var mount in mounts)
       {
-        var mode = mount.IsReadWrite ? "rw" : "ro";
-        var containerPath = mount.GetContainerPath(ctx.Paths.UserHome);
-        var resolvedPath = mount.ResolveHostPath(ctx.Paths.UserHome);
-        var dockerPath = ConvertToDockerPath(resolvedPath);
-        extraMounts.AppendLine($"      - {dockerPath}:{containerPath}:{mode}");
+        extraMounts.AppendLine($"      - {mount.ToDockerVolume(ctx.Paths.UserHome, ctx.Environment.SelinuxLabel)}");
       }
 
       // Build logs mount if logging enabled
@@ -308,7 +311,7 @@ public static class AirlockRunner
       {
         var logsDir = Path.Combine(ctx.Paths.LocalConfigPath, "logs");
         var dockerLogsPath = ConvertToDockerPath(logsDir);
-        logsMount = $"      - {dockerLogsPath}:/logs";
+        logsMount = $"      - {dockerLogsPath}:/logs{selinuxBindOpts}";
       }
 
       // Convert app sandbox flags to YAML
@@ -381,7 +384,11 @@ public static class AirlockRunner
         .Replace("{{PUID}}", ctx.Environment.UserId.ToString())
         .Replace("{{PGID}}", ctx.Environment.GroupId.ToString())
         .Replace("{{SESSION_INFO}}", sessionInfo)
-        .Replace("{{TOOL_ARGS}}", toolCmd.ToString());
+        .Replace("{{TOOL_ARGS}}", toolCmd.ToString())
+        // SELinux: {{SELINUX_BIND_OPTS}} = :z or empty (mounts with no existing options)
+        //          {{SELINUX_EXTRA_OPT}}  = ,z or empty (mounts with existing options e.g. :ro)
+        .Replace("{{SELINUX_BIND_OPTS}}", selinuxBindOpts)
+        .Replace("{{SELINUX_EXTRA_OPT}}", selinuxExtraOpt);
 
       // Handle multiline placeholders
       var lines = result.Split('\n').ToList();

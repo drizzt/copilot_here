@@ -36,7 +36,20 @@ public sealed record MountsConfig
     foreach (var line in ConfigFile.ReadLines(path))
     {
       var isReadWrite = false;
+      string? selinuxLabel = null;
       var workingLine = line;
+
+      // Check for :z or :Z suffix (SELinux labels, case-sensitive)
+      if (workingLine.EndsWith(":z", StringComparison.Ordinal))
+      {
+        selinuxLabel = "z";
+        workingLine = workingLine[..^2];
+      }
+      else if (workingLine.EndsWith(":Z", StringComparison.Ordinal))
+      {
+        selinuxLabel = "Z";
+        workingLine = workingLine[..^2];
+      }
 
       // Check for :rw or :ro suffix
       if (workingLine.EndsWith(":rw", StringComparison.OrdinalIgnoreCase))
@@ -49,18 +62,33 @@ public sealed record MountsConfig
         workingLine = workingLine[..^3];
       }
 
+      // Check again for :z or :Z after stripping rw/ro (handles "/path:rw:z" order)
+      if (selinuxLabel is null)
+      {
+        if (workingLine.EndsWith(":z", StringComparison.Ordinal))
+        {
+          selinuxLabel = "z";
+          workingLine = workingLine[..^2];
+        }
+        else if (workingLine.EndsWith(":Z", StringComparison.Ordinal))
+        {
+          selinuxLabel = "Z";
+          workingLine = workingLine[..^2];
+        }
+      }
+
       // Parse hostPath:containerPath format
       var colonIndex = workingLine.IndexOf(':');
       if (colonIndex > 0)
       {
         var hostPath = workingLine[..colonIndex];
         var containerPath = workingLine[(colonIndex + 1)..];
-        mounts.Add(new MountEntry(hostPath, containerPath, isReadWrite, source));
+        mounts.Add(new MountEntry(hostPath, containerPath, isReadWrite, source) { SelinuxLabel = selinuxLabel });
       }
       else
       {
         var hostPath = workingLine;
-        mounts.Add(new MountEntry(hostPath, null, isReadWrite, source));
+        mounts.Add(new MountEntry(hostPath, null, isReadWrite, source) { SelinuxLabel = selinuxLabel });
       }
     }
 
@@ -244,13 +272,21 @@ public readonly record struct MountEntry
   }
 
   /// <summary>Gets the Docker volume mount string.</summary>
-  public string ToDockerVolume(string userHome)
+  /// <param name="userHome">The host user's home directory path.</param>
+  /// <param name="fallbackSelinuxLabel">
+  /// SELinux label to use when this mount has no explicit label set (e.g. auto-detected from the host).
+  /// Precedence: the mount's own <see cref="SelinuxLabel"/> takes priority over this fallback;
+  /// both can be null, in which case no SELinux label is appended.
+  /// </param>
+  public string ToDockerVolume(string userHome, string? fallbackSelinuxLabel = null)
   {
     var hostPath = ResolveHostPath(userHome);
     var dockerHostPath = ConvertToDockerPath(hostPath);
     var containerPath = GetContainerPath(userHome);
     var mode = IsReadWrite ? "rw" : "ro";
-    return $"{dockerHostPath}:{containerPath}:{mode}";
+    var effectiveLabel = SelinuxLabel ?? fallbackSelinuxLabel;
+    var selinux = effectiveLabel is not null ? $",{effectiveLabel}" : "";
+    return $"{dockerHostPath}:{containerPath}:{mode}{selinux}";
   }
 
   /// <summary>
@@ -280,6 +316,8 @@ public readonly record struct MountEntry
   public bool IsReadWrite { get; init; }
   public MountSource Source { get; init; }
   public string? ContainerPath { get; init; }
+  /// <summary>Optional SELinux label: "z" (shared) or "Z" (private). Appended as ,z or ,Z to the volume mount option.</summary>
+  public string? SelinuxLabel { get; init; }
 }
 
 public enum MountSource

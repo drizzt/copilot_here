@@ -117,6 +117,30 @@ public static class SystemInfo
   }
 
   /// <summary>
+  /// Detects whether SELinux is currently enforcing on the host.
+  /// Returns true only on Linux when /sys/fs/selinux/enforce contains "1".
+  /// The result is cached after the first call since enforcement state does not
+  /// change during program execution.
+  /// </summary>
+  public static bool IsSelinuxEnforcing() => _selinuxEnforcing.Value;
+
+  private static readonly Lazy<bool> _selinuxEnforcing = new(DetectSelinuxEnforcing);
+
+  private static bool DetectSelinuxEnforcing()
+  {
+    if (!OperatingSystem.IsLinux()) return false;
+    try
+    {
+      var value = File.ReadAllText("/sys/fs/selinux/enforce").Trim();
+      return value == "1";
+    }
+    catch
+    {
+      return false;
+    }
+  }
+
+  /// <summary>
   /// Gets the current directory name for use in terminal titles.
   /// </summary>
   public static string GetCurrentDirectoryName()

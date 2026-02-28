@@ -36,4 +36,24 @@ public class SystemInfoTests
     // Assert - just verify it doesn't throw and returns a boolean
     await Assert.That(result).IsTypeOf<bool>();
   }
+
+  [Test]
+  public async Task IsSelinuxEnforcing_ReturnsBool()
+  {
+    // Act - should not throw regardless of the host's SELinux state
+    var result = SystemInfo.IsSelinuxEnforcing();
+
+    // Assert
+    await Assert.That(result).IsTypeOf<bool>();
+  }
+
+  [Test]
+  public async Task IsSelinuxEnforcing_ReturnsFalseOnNonLinux()
+  {
+    // On non-Linux OSes (Windows, macOS), SELinux is never enforcing
+    if (OperatingSystem.IsLinux()) return; // Skip on Linux where result depends on host
+
+    var result = SystemInfo.IsSelinuxEnforcing();
+    await Assert.That(result).IsFalse();
+  }
 }

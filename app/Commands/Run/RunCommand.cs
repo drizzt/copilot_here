@@ -613,7 +613,10 @@ public sealed class RunCommand : ICommand
     var sessionInfo = SessionInfo.Generate(ctx, imageTag, imageName, mounts, isYolo);
     var hostToolConfigPath = ctx.ActiveTool.GetHostConfigPath(ctx.Paths);
     var containerToolConfigPath = ctx.ActiveTool.GetContainerConfigPath();
-    
+
+    // SELinux: append :z to bind mounts when SELinux enforcement is detected on the host
+    var selinuxSuffix = ctx.Environment.SelinuxLabel is not null ? $":{ctx.Environment.SelinuxLabel}" : "";
+
     var args = new List<string>
     {
       "run",
@@ -621,10 +624,10 @@ public sealed class RunCommand : ICommand
       "-it",
       "--name", containerName,
       // Mount current directory
-      "-v", $"{ConvertToDockerPath(ctx.Paths.CurrentDirectory)}:{ctx.Paths.ContainerWorkDir}",
+      "-v", $"{ConvertToDockerPath(ctx.Paths.CurrentDirectory)}:{ctx.Paths.ContainerWorkDir}{selinuxSuffix}",
       "-w", ctx.Paths.ContainerWorkDir,
       // Mount active tool config
-      "-v", $"{ConvertToDockerPath(hostToolConfigPath)}:{containerToolConfigPath}",
+      "-v", $"{ConvertToDockerPath(hostToolConfigPath)}:{containerToolConfigPath}{selinuxSuffix}",
       // Environment variables
       "-e", $"PUID={ctx.Environment.UserId}",
       "-e", $"PGID={ctx.Environment.GroupId}",
@@ -646,11 +649,12 @@ public sealed class RunCommand : ICommand
       args.Insert(1, "--pull=never"); // Insert after "run"
     }
 
-    // Add additional mounts
+    // Add additional mounts; pass the environment's SELinux label as fallback
+    // so that mounts without an explicit :z/:Z are also labelled on SELinux hosts
     foreach (var mount in mounts)
     {
       args.Add("-v");
-      args.Add(mount.ToDockerVolume(ctx.Paths.UserHome));
+      args.Add(mount.ToDockerVolume(ctx.Paths.UserHome, ctx.Environment.SelinuxLabel));
     }
 
     // Add sandbox flags from SANDBOX_FLAGS environment variable
@@ -672,12 +676,26 @@ public sealed class RunCommand : ICommand
 
   /// <summary>
   /// Parses a CLI mount path, handling both simple paths and host:container format.
-  /// Format: "path", "path:rw", "path:ro", "host:container", "host:container:rw", "host:container:ro"
+  /// Format: "path", "path:rw", "path:ro", "path:z", "path:rw:z", "host:container", "host:container:rw", "host:container:ro", "host:container:rw:z"
+  /// SELinux labels :z (shared) and :Z (private) can appear before or after :rw/:ro.
   /// </summary>
   internal static MountEntry ParseCliMount(string input, bool defaultReadWrite)
   {
     var isReadWrite = defaultReadWrite;
+    string? selinuxLabel = null;
     var spec = input.Trim('\'', '"'); // Remove any surrounding quotes
+
+    // Check for trailing :z or :Z (SELinux labels, case-sensitive)
+    if (spec.EndsWith(":z", StringComparison.Ordinal))
+    {
+      selinuxLabel = "z";
+      spec = spec[..^2];
+    }
+    else if (spec.EndsWith(":Z", StringComparison.Ordinal))
+    {
+      selinuxLabel = "Z";
+      spec = spec[..^2];
+    }
 
     // Check for trailing :rw or :ro
     if (spec.EndsWith(":rw", StringComparison.OrdinalIgnoreCase))
@@ -691,20 +709,35 @@ public sealed class RunCommand : ICommand
       spec = spec[..^3];
     }
 
+    // Check again for :z or :Z after stripping rw/ro (handles "/path:rw:z" order)
+    if (selinuxLabel is null)
+    {
+      if (spec.EndsWith(":z", StringComparison.Ordinal))
+      {
+        selinuxLabel = "z";
+        spec = spec[..^2];
+      }
+      else if (spec.EndsWith(":Z", StringComparison.Ordinal))
+      {
+        selinuxLabel = "Z";
+        spec = spec[..^2];
+      }
+    }
+
     // Check if this is a host:container format
     var separatorIndex = FindBindSeparator(spec);
     
     if (separatorIndex == -1)
     {
       // Simple path format - auto-compute container path
-      return new MountEntry(spec, isReadWrite, MountSource.CommandLine);
+      return new MountEntry(spec, isReadWrite, MountSource.CommandLine) { SelinuxLabel = selinuxLabel };
     }
 
     // host:container format
     var hostPath = spec[..separatorIndex];
     var containerPath = spec[(separatorIndex + 1)..];
 
-    return new MountEntry(hostPath, containerPath, isReadWrite, MountSource.CommandLine);
+    return new MountEntry(hostPath, containerPath, isReadWrite, MountSource.CommandLine) { SelinuxLabel = selinuxLabel };
   }
 
   /// <summary>

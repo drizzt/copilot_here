@@ -447,4 +447,89 @@ public class MountEntryTests
     await Assert.That(dockerVolume).Contains("test");
     await Assert.That(dockerVolume).Contains("hostdata");
   }
+
+  [Test]
+  public async Task ToDockerVolume_WithSelinuxSharedLabel_AppendsZLabel()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local) { SelinuxLabel = "z" };
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome);
+
+    // Assert
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro,z");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_WithSelinuxPrivateLabel_AppendsCapitalZLabel()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", true, MountSource.Local) { SelinuxLabel = "Z" };
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome);
+
+    // Assert
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:rw,Z");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_WithoutSelinuxLabel_NoCommaAppended()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local);
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome);
+
+    // Assert
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro");
+    await Assert.That(dockerVolume).DoesNotContain(",");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_FallbackSelinuxLabel_UsedWhenNoExplicitLabel()
+  {
+    // Arrange - mount has no explicit SELinux label, but host auto-detected one
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local);
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome, fallbackSelinuxLabel: "z");
+
+    // Assert - fallback label should be used
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro,z");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_ExplicitLabelOverridesFallback()
+  {
+    // Arrange - mount has explicit :Z but host would provide :z
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local) { SelinuxLabel = "Z" };
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome, fallbackSelinuxLabel: "z");
+
+    // Assert - explicit :Z takes precedence over fallback :z
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro,Z");
+  }
+
+  [Test]
+  public async Task ToDockerVolume_FallbackSelinuxLabel_NullFallbackProducesNoLabel()
+  {
+    // Arrange
+    var mount = new MountEntry("/host/data", "/container/data", false, MountSource.Local);
+    var userHome = "/home/user";
+
+    // Act
+    var dockerVolume = mount.ToDockerVolume(userHome, fallbackSelinuxLabel: null);
+
+    // Assert - no label at all
+    await Assert.That(dockerVolume).IsEqualTo("/host/data:/container/data:ro");
+  }
 }

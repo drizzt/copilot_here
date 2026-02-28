@@ -155,4 +155,75 @@ public class ParseCliMountTests
     await Assert.That(mount1.IsReadWrite).IsTrue();
     await Assert.That(mount2.IsReadWrite).IsTrue();
   }
+
+  [Test]
+  public async Task ParseCliMount_SelinuxSharedLabel_ParsesCorrectly()
+  {
+    // Act
+    var mount = RunCommand.ParseCliMount("/path/to/dir:z", defaultReadWrite: false);
+
+    // Assert
+    await Assert.That(mount.HostPath).IsEqualTo("/path/to/dir");
+    await Assert.That(mount.IsReadWrite).IsFalse();
+    await Assert.That(mount.SelinuxLabel).IsEqualTo("z");
+  }
+
+  [Test]
+  public async Task ParseCliMount_SelinuxPrivateLabel_ParsesCorrectly()
+  {
+    // Act
+    var mount = RunCommand.ParseCliMount("/path/to/dir:Z", defaultReadWrite: false);
+
+    // Assert
+    await Assert.That(mount.HostPath).IsEqualTo("/path/to/dir");
+    await Assert.That(mount.IsReadWrite).IsFalse();
+    await Assert.That(mount.SelinuxLabel).IsEqualTo("Z");
+  }
+
+  [Test]
+  public async Task ParseCliMount_SelinuxLabelAfterReadWrite_ParsesCorrectly()
+  {
+    // Act - :rw:z order
+    var mount = RunCommand.ParseCliMount("/path/to/dir:rw:z", defaultReadWrite: false);
+
+    // Assert
+    await Assert.That(mount.HostPath).IsEqualTo("/path/to/dir");
+    await Assert.That(mount.IsReadWrite).IsTrue();
+    await Assert.That(mount.SelinuxLabel).IsEqualTo("z");
+  }
+
+  [Test]
+  public async Task ParseCliMount_SelinuxLabelBeforeReadWrite_ParsesCorrectly()
+  {
+    // Act - :z:rw order
+    var mount = RunCommand.ParseCliMount("/path/to/dir:z:rw", defaultReadWrite: false);
+
+    // Assert
+    await Assert.That(mount.HostPath).IsEqualTo("/path/to/dir");
+    await Assert.That(mount.IsReadWrite).IsTrue();
+    await Assert.That(mount.SelinuxLabel).IsEqualTo("z");
+  }
+
+  [Test]
+  public async Task ParseCliMount_SelinuxLabelWithHostContainer_ParsesCorrectly()
+  {
+    // Act
+    var mount = RunCommand.ParseCliMount("/host/path:/container/path:ro:z", defaultReadWrite: false);
+
+    // Assert
+    await Assert.That(mount.HostPath).IsEqualTo("/host/path");
+    await Assert.That(mount.ContainerPath).IsEqualTo("/container/path");
+    await Assert.That(mount.IsReadWrite).IsFalse();
+    await Assert.That(mount.SelinuxLabel).IsEqualTo("z");
+  }
+
+  [Test]
+  public async Task ParseCliMount_NoSelinuxLabel_SelinuxLabelIsNull()
+  {
+    // Act
+    var mount = RunCommand.ParseCliMount("/path/to/dir:rw", defaultReadWrite: false);
+
+    // Assert
+    await Assert.That(mount.SelinuxLabel).IsNull();
+  }
 }

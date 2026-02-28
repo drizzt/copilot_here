@@ -21,7 +21,7 @@ services:
       - airlock  # Receives requests from app container
       - {{EXTERNAL_NETWORK}}    # Makes outbound requests to external network
     volumes:
-      - {{NETWORK_CONFIG}}:/config/rules.json:ro
+      - {{NETWORK_CONFIG}}:/config/rules.json:ro{{SELINUX_EXTRA_OPT}}
       - proxy-ca:/ca
 {{LOGS_MOUNT}}
     healthcheck:
@@ -48,8 +48,8 @@ services:
       - COPILOT_HERE_SESSION_INFO={{SESSION_INFO}}
     volumes:
       - proxy-ca:/ca:ro
-      - {{TOOL_CONFIG}}:{{TOOL_CONFIG_CONTAINER_PATH}}
-      - {{WORK_DIR}}:{{CONTAINER_WORK_DIR}}
+      - {{TOOL_CONFIG}}:{{TOOL_CONFIG_CONTAINER_PATH}}{{SELINUX_BIND_OPTS}}
+      - {{WORK_DIR}}:{{CONTAINER_WORK_DIR}}{{SELINUX_BIND_OPTS}}
 {{EXTRA_MOUNTS}}
 {{EXTRA_SANDBOX_FLAGS}}
     working_dir: {{CONTAINER_WORK_DIR}}
